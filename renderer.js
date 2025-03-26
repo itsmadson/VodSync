@@ -286,11 +286,14 @@ async function createClip() {
 
 // Fetch all VODs from API
 async function fetchAllVODs() {
+  console.log('Fetching all VODs...');
   currentStreamer = null;
   updateLoadingState('CONNECTING TO NETWORK...', 'SCANNING DATABASE');
   
   try {
+    console.log('Fetching from:', API_URL);
     const response = await fetch(API_URL);
+    console.log('Response status:', response.status);
     if (!response.ok) {
       throw new Error(`Network error: ${response.status}`);
     }
