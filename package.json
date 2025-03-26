@@ -1,0 +1,34 @@
+{
+    "name": "twitch-vod-viewer",
+    "version": "1.0.0",
+    "description": "Cyberpunk-styled Twitch VOD viewer",
+    "main": "main.js",
+    "scripts": {
+      "start": "electron .",
+      "build": "electron-builder"
+    },
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+      "electron-store": "^8.1.0",
+      "fluent-ffmpeg": "^2.1.2",
+      "tmp": "^0.2.1"
+    },
+    "devDependencies": {
+      "electron": "^28.0.0",
+      "electron-builder": "^24.6.4"
+    },
+    "build": {
+      "appId": "com.vod.viewer",
+      "productName": "Twitch VOD Viewer",
+      "mac": {
+        "category": "public.app-category.entertainment"
+      },
+      "linux": {
+        "category": "Utility"
+      },
+      "win": {
+        "target": "nsis"
+      }
+    }
+  }

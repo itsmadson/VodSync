@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Twitch VOD Viewer - Cyberpunk Edition</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <!-- Include HLS.js -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+  <div class="app-container">
+    <header>
+      <div class="logo">
+        <span class="logo-text">VOD<span class="accent">SYNC</span></span>
+        <div class="glitch-effect"></div>
+      </div>
+      <div class="header-controls">
+        <button id="refresh-btn" class="cyber-btn"><i class="fas fa-sync-alt"></i> SYNC</button>
+      </div>
+    </header>
+    <main>
+      <div class="status-bar">
+        <div class="status-indicator">
+          <span class="pulse"></span>
+          <span id="connection-status">CONNECTING TO NETWORK...</span>
+        </div>
+        <div class="search-container">
+          <div class="streamer-search">
+            <input type="text" id="streamer-search" placeholder="SEARCH BY STREAMER...">
+            <button id="streamer-search-btn" class="cyber-btn cyber-btn-sm">
+              <i class="fas fa-search"></i>
+            </button>
+          </div>
+          <input type="text" id="search-input" placeholder="FILTER STREAMS...">
+        </div>
+      </div>
+      <div id="vod-container" class="vod-container">
+        <!-- VODs will be loaded here -->
+        <div class="loading">
+          <div class="loading-text">SCANNING DATABASE</div>
+          <div class="loading-bar"></div>
+        </div>
+      </div>
+    </main>
+    <footer>
+      <div class="footer-stats">
+        <span id="total-vods">VODs: --</span>
+        <span id="last-updated">LAST SYNC: --:--:--</span>
+      </div>
+    </footer>
+  </div>
+  
+  <!-- Video Player Modal -->
+  <div id="player-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="player-info">
+          <h3 id="player-title">Stream Title</h3>
+          <p id="player-streamer">Streamer</p>
+        </div>
+        <span id="modal-close" class="close-btn"><i class="fas fa-times"></i></span>
+      </div>
+      <div class="video-container">
+        <video id="video-player" controls></video>
+      </div>
+<!-- Add this to the clip controls in the modal -->
+      <div class="clip-controls">
+        <div class="clip-info">
+          <p id="clip-time-info">START: --:-- | END: --:--</p>
+        </div>
+        <div class="clip-actions">
+          <button id="clip-start-btn" class="cyber-btn"><i class="fas fa-scissors"></i> SET START</button>
+          <button id="clip-end-btn" class="cyber-btn"><i class="fas fa-flag-checkered"></i> SET END</button>
+          <button id="create-clip-btn" class="cyber-btn disabled" disabled><i class="fas fa-share-alt"></i> CREATE CLIP</button>
+          <button id="download-clip-btn" class="cyber-btn disabled" disabled><i class="fas fa-download"></i> DOWNLOAD CLIP</button>
+        </div>
+        <div class="share-section">
+          <textarea id="share-link-area" class="share-link" readonly></textarea>
+          <button id="copy-share-btn" class="cyber-btn"><i class="fas fa-copy"></i> COPY</button>
+        </div>
+      </div>
+
+      <!-- Add this to show download progress (can be placed right before the closing body tag) -->
+      <div id="download-progress-modal" class="modal" style="display:none;">
+        <div class="modal-content download-progress-content">
+          <div class="modal-header">
+            <h3>DOWNLOADING VOD/CLIP</h3>
+            <span id="download-modal-close" class="close-btn"><i class="fas fa-times"></i></span>
+          </div>
+          <div class="progress-container">
+            <div class="progress-bar-container">
+              <div id="download-progress-bar" class="progress-bar"></div>
+            </div>
+            <p id="download-progress-text">0%</p>
+            <p id="download-file-info">Preparing download...</p>
+          </div>
+        </div>
+      </div>
+        
+  <script src="renderer.js"></script>
+</body>
+</html>
