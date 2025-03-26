@@ -15,6 +15,7 @@ const clipEndBtn = document.getElementById('clip-end-btn');
 const createClipBtn = document.getElementById('create-clip-btn');
 const shareLinkArea = document.getElementById('share-link-area');
 const copyShareBtn = document.getElementById('copy-share-btn');
+const clipTimeInfo = document.getElementById('clip-time-info');
 const playerTitle = document.getElementById('player-title');
 const playerStreamer = document.getElementById('player-streamer');
 
@@ -199,22 +200,20 @@ function resetClipTimes() {
   clipStartTime = null;
   clipEndTime = null;
   updateClipTimeDisplay();
-  shareLinkArea.value = '';
-  shareLinkArea.style.display = 'none';
-  copyShareBtn.style.display = 'none';
 }
 
 // Update clip time display
 function updateClipTimeDisplay() {
   clipTimeInfo.textContent = `START: ${formatClipTime(clipStartTime)} | END: ${formatClipTime(clipEndTime)}`;
   
-  // Only check if both times are set and valid
-  const isValid = clipStartTime !== null && 
-                 clipEndTime !== null && 
-                 clipEndTime > clipStartTime;
-  
-  downloadClipBtn.disabled = !isValid;
-  downloadClipBtn.classList.toggle('disabled', !isValid);
+  // Enable/disable download clip button based on if both times are set
+  if (clipStartTime !== null && clipEndTime !== null && clipStartTime < clipEndTime) {
+    downloadClipBtn.disabled = false;
+    downloadClipBtn.classList.remove('disabled');
+  } else {
+    downloadClipBtn.disabled = true;
+    downloadClipBtn.classList.add('disabled');
+  }
 }
 
 // Set clip start time
@@ -237,6 +236,52 @@ function setClipEndTime() {
     showNotification('CLIP END SET');
   }
   updateClipTimeDisplay();
+}
+
+// Create and share clip
+async function createClip() {
+  if (!currentPlayingVod || clipStartTime === null || clipEndTime === null) {
+    return;
+  }
+  
+  showNotification('GENERATING CLIP...');
+  
+  // In a real app, you would send a request to your server to generate the clip
+  // For demo purposes, we'll create a fake share link
+  
+  try {
+    // This would be the actual API request in a real app
+    // const response = await fetch(CLIP_URL, {
+    //   method: 'POST',
+    //   headers: {
+    //     'Content-Type': 'application/json',
+    //   },
+    //   body: JSON.stringify({
+    //     vodId: currentPlayingVod.Id,
+    //     startTime: clipStartTime,
+    //     endTime: clipEndTime
+    //   }),
+    // });
+    // const clipData = await response.json();
+    // const shareLink = clipData.shareUrl;
+    
+    // For demo, create a fake share link with parameters
+    const metadata = currentPlayingVod.Metadata || {};
+    const streamer = metadata.StreamerLoginAtStart || 'unknown';
+    const vodId = currentPlayingVod.Id || Math.random().toString(36).substring(2, 10);
+    
+    const shareLink = `${BASE_URL}/clip/${streamer}/${vodId}?start=${Math.floor(clipStartTime)}&end=${Math.floor(clipEndTime)}`;
+    
+    // Display the share link
+    shareLinkArea.value = shareLink;
+    shareLinkArea.style.display = 'block';
+    copyShareBtn.style.display = 'inline-block';
+    
+    showNotification('CLIP GENERATED!');
+  } catch (error) {
+    console.error('Error creating clip:', error);
+    showNotification('ERROR CREATING CLIP');
+  }
 }
 
 // Fetch all VODs from API
@@ -491,76 +536,43 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Download the VOD
-async function downloadVOD(vodURL, filename) {
-  try {
-    showNotification('INITIATING DOWNLOAD...');
-    
-    // Try to use Electron's API if available
-    if (window.api && window.api.downloadFile) {
-      window.api.downloadFile(vodURL, filename);
-      return;
-    }
-    
-    // Fallback for browser: create a link and trigger download
-    const link = document.createElement('a');
-    link.href = vodURL;
-    link.download = filename || 'vod.mp4';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    showNotification('DOWNLOAD STARTED');
-  } catch (error) {
-    console.error('Download error:', error);
-    showNotification('DOWNLOAD FAILED');
-  }
-}
-
-// Remove the createClip function and modify the downloadClip function
+// Download clip function
 async function downloadClip() {
   if (!currentPlayingVod || clipStartTime === null || clipEndTime === null) {
-    showNotification('PLEASE SET START AND END TIMES FIRST');
+    showNotification('SET CLIP TIMES FIRST');
     return;
   }
-
-  if (clipEndTime <= clipStartTime) {
-    showNotification('END TIME MUST BE AFTER START TIME');
-    return;
-  }
-
+  
+  showNotification('PREPARING CLIP FOR DOWNLOAD...');
+  
   try {
-    showNotification('PREPARING YOUR CLIP...');
-    
     const metadata = currentPlayingVod.Metadata || {};
     const streamer = metadata.StreamerLoginAtStart || 'unknown';
     const vodTitle = metadata.TitleAtStart || 'stream';
     
-    // Create filename
+    // Create a sanitized filename
     const sanitizedTitle = vodTitle.replace(/[^a-z0-9]/gi, '_').substring(0, 20);
-    const filename = `${streamer}_${sanitizedTitle}_${Math.floor(clipStartTime)}s-${Math.floor(clipEndTime)}s.mp4`;
+    const filename = `${streamer}_${sanitizedTitle}_clip_${Math.floor(clipStartTime)}-${Math.floor(clipEndTime)}.mp4`;
     
-    // Get the actual stream URL
     const vodURL = BASE_URL + currentPlayingVod.Link;
     
-    // Initiate download
-    if (window.api && window.api.downloadClip) {
-      window.api.downloadClip(vodURL, filename, clipStartTime, clipEndTime);
+    // Call the download function with clip parameters
+    if (window.api && window.api.downloadFile) {
+      window.api.downloadFile(vodURL, filename, true, clipStartTime, clipEndTime);
+      
+      // Show the download progress modal
+      downloadProgressModal.style.display = 'flex';
+      downloadProgressBar.style.width = '0%';
+      downloadProgressText.textContent = '0%';
+      downloadFileInfo.textContent = 'Preparing clip download...';
     } else {
-      showNotification('DOWNLOAD ERROR: API NOT AVAILABLE');
+      showNotification('DOWNLOAD API NOT AVAILABLE');
     }
   } catch (error) {
-    console.error('Clip download error:', error);
+    console.error('Error downloading clip:', error);
     showNotification('CLIP DOWNLOAD FAILED');
   }
 }
-
-// Update the event listeners
-document.querySelector('.clip-actions').innerHTML = `
-  <button id="clip-start-btn" class="cyber-btn"><i class="fas fa-play"></i> SET START</button>
-  <button id="clip-end-btn" class="cyber-btn"><i class="fas fa-stop"></i> SET END</button>
-  <button id="download-clip-btn" class="cyber-btn disabled" disabled><i class="fas fa-download"></i> DOWNLOAD CLIP</button>
-`;
 
 const downloadProgressModal = document.getElementById('download-progress-modal');
 const downloadProgressBar = document.getElementById('download-progress-bar');

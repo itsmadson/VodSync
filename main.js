@@ -116,23 +116,25 @@ async function downloadAndConvertClip(url, targetPath, startTime, endTime, event
     
     event.sender.send('download-progress', {
       percentage: 0,
-      status: 'Preparing to extract clip...'
+      status: 'Starting clip extraction...'
     });
 
-    // Use a single ffmpeg command to extract the clip directly
-    // This is more efficient and reliable
+    // Use ffmpeg to extract just the clip portion
     return new Promise((resolve, reject) => {
-      const command = ffmpeg(url)
-        // Set the exact start time
-        .seekInput(startTime)
-        // Set the exact duration
-        .duration(endTime - startTime)
+      console.log(`Extracting clip from ${startTime}s to ${endTime}s (duration: ${endTime - startTime}s)`);
+      
+      const command = ffmpeg()
+        .input(url)
+        .inputOptions([
+          `-ss ${startTime}`  // Seek to start time
+        ])
         .outputOptions([
-          '-c:v', 'copy',        // Copy video codec without re-encoding
-          '-c:a', 'copy',        // Copy audio codec without re-encoding
-          '-bsf:a', 'aac_adtstoasc', // Fix audio stream
-          '-avoid_negative_ts', 'make_zero', // Fix timestamp issues
-          '-y'                   // Overwrite output
+          `-t ${endTime - startTime}`,  // Set duration
+          '-c:v copy',                  // Copy video codec
+          '-c:a copy',                  // Copy audio codec
+          '-bsf:a aac_adtstoasc',       // Fix audio stream
+          '-movflags faststart',        // Optimize for web streaming
+          '-y'                          // Overwrite output
         ])
         .output(targetPath);
       
@@ -141,12 +143,13 @@ async function downloadAndConvertClip(url, targetPath, startTime, endTime, event
         if (progress.percent) {
           event.sender.send('download-progress', {
             percentage: Math.round(progress.percent),
-            status: `Extracting clip: ${progress.percent.toFixed(1)}% at ${progress.currentKbps} kbps`
+            status: `Extracting clip: ${progress.percent.toFixed(1)}% at ${progress.currentKbps || 0} kbps`
           });
         }
       });
       
       command.on('end', () => {
+        console.log('Clip extraction complete');
         event.sender.send('download-progress', {
           percentage: 100,
           status: 'Clip extraction complete!'
@@ -165,20 +168,11 @@ async function downloadAndConvertClip(url, targetPath, startTime, endTime, event
       
       command.on('error', (err) => {
         console.error('Error extracting clip:', err);
-        
-        // Try an alternative approach if the first one fails
-        if (err.message.includes('Invalid data found') || err.message.includes('Error opening input')) {
-          console.log('Trying alternative clip extraction method...');
-          alternativeClipExtraction(url, targetPath, startTime, endTime, event, tmpDir)
-            .then(resolve)
-            .catch(reject);
-        } else {
-          event.sender.send('download-error', {
-            error: `Error extracting clip: ${err.message}`
-          });
-          tmpDir.removeCallback();
-          reject(err);
-        }
+        event.sender.send('download-error', {
+          error: `Error extracting clip: ${err.message}`
+        });
+        tmpDir.removeCallback();
+        reject(err);
       });
       
       // Start the extraction

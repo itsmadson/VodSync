@@ -11,17 +11,9 @@ contextBridge.exposeInMainWorld('api', {
     return true;
   },
   // Add function for downloading files
-  downloadFile: (url, filename) => {
-    ipcRenderer.send('download-file', { url, filename });
+  downloadFile: (url, filename, isClip = false, startTime = null, endTime = null) => {
+    ipcRenderer.send('download-file', { url, filename, isClip, startTime, endTime });
     return true;
-  },
-  // Add function to create and save clip files if needed
-  saveClip: (blobUrl, filename) => {
-    // This would need implementation in main.js to handle saving files
-    ipcRenderer.send('save-clip', { blobUrl, filename });
-  },
-  downloadClip: (url, filename, startTime, endTime) => {
-    ipcRenderer.send('download-clip', { url, filename, startTime, endTime });
   }
 });
 
