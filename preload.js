@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('api', {
   saveClip: (blobUrl, filename) => {
     // This would need implementation in main.js to handle saving files
     ipcRenderer.send('save-clip', { blobUrl, filename });
+  },
+  downloadClip: (url, filename, startTime, endTime) => {
+    ipcRenderer.send('download-clip', { url, filename, startTime, endTime });
   }
 });
 
