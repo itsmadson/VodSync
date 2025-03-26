@@ -113,101 +113,76 @@ async function downloadAndConvertClip(url, targetPath, startTime, endTime, event
   try {
     // Create temporary directory
     const tmpDir = tmp.dirSync({ unsafeCleanup: true });
-    const tempOutput = path.join(tmpDir.name, 'full_video.mp4');
     
     event.sender.send('download-progress', {
       percentage: 0,
       status: 'Preparing to extract clip...'
     });
 
-    // First, download a small portion of the full video that contains our clip
-    // This is more reliable than trying to download individual segments
+    // Use a single ffmpeg command to extract the clip directly
+    // This is more efficient and reliable
     return new Promise((resolve, reject) => {
-      // Step 1: Download the portion we need using ffmpeg
-      const ffmpegDownload = ffmpeg(url)
-        .seekInput(Math.max(0, startTime - 5)) // Start 5 seconds before clip start for safety
-        .duration(endTime - startTime + 10)    // Add 10 seconds buffer (5 at start, 5 at end)
+      const command = ffmpeg(url)
+        // Set the exact start time
+        .seekInput(startTime)
+        // Set the exact duration
+        .duration(endTime - startTime)
         .outputOptions([
-          '-c', 'copy',                        // Just copy streams, don't re-encode
-          '-bsf:a', 'aac_adtstoasc',           // Fix audio stream
-          '-y'                                 // Overwrite output
+          '-c:v', 'copy',        // Copy video codec without re-encoding
+          '-c:a', 'copy',        // Copy audio codec without re-encoding
+          '-bsf:a', 'aac_adtstoasc', // Fix audio stream
+          '-avoid_negative_ts', 'make_zero', // Fix timestamp issues
+          '-y'                   // Overwrite output
         ])
-        .output(tempOutput);
+        .output(targetPath);
       
-      // Track download progress
-      ffmpegDownload.on('progress', (progress) => {
+      // Track progress
+      command.on('progress', (progress) => {
         if (progress.percent) {
           event.sender.send('download-progress', {
-            percentage: Math.min(50, Math.round(progress.percent / 2)), // First half of progress
-            status: `Downloading video section: ${progress.percent.toFixed(1)}%`
+            percentage: Math.round(progress.percent),
+            status: `Extracting clip: ${progress.percent.toFixed(1)}% at ${progress.currentKbps} kbps`
           });
         }
       });
       
-      ffmpegDownload.on('end', () => {
+      command.on('end', () => {
         event.sender.send('download-progress', {
-          percentage: 50,
-          status: 'Download complete, extracting clip...'
+          percentage: 100,
+          status: 'Clip extraction complete!'
         });
         
-        // Step 2: Extract the exact clip from our downloaded portion
-        const ffmpegExtract = ffmpeg(tempOutput)
-          .seekInput(5)  // Skip the 5-second buffer we added
-          .duration(endTime - startTime)
-          .outputOptions([
-            '-c', 'copy',  // Just copy streams, don't re-encode
-            '-y'           // Overwrite output
-          ])
-          .output(targetPath);
+        // Clean up
+        tmpDir.removeCallback();
         
-        ffmpegExtract.on('progress', (progress) => {
-          if (progress.percent) {
-            event.sender.send('download-progress', {
-              percentage: 50 + Math.round(progress.percent / 2), // Second half of progress
-              status: `Extracting clip: ${progress.percent.toFixed(1)}%`
-            });
-          }
+        event.sender.send('download-complete', {
+          path: targetPath,
+          filename: path.basename(targetPath)
         });
         
-        ffmpegExtract.on('end', () => {
-          event.sender.send('download-progress', {
-            percentage: 100,
-            status: 'Clip extraction complete!'
-          });
-          
-          // Clean up
-          tmpDir.removeCallback();
-          
-          event.sender.send('download-complete', {
-            path: targetPath,
-            filename: path.basename(targetPath)
-          });
-          
-          resolve();
-        });
+        resolve();
+      });
+      
+      command.on('error', (err) => {
+        console.error('Error extracting clip:', err);
         
-        ffmpegExtract.on('error', (err) => {
-          console.error('Error extracting clip:', err);
+        // Try an alternative approach if the first one fails
+        if (err.message.includes('Invalid data found') || err.message.includes('Error opening input')) {
+          console.log('Trying alternative clip extraction method...');
+          alternativeClipExtraction(url, targetPath, startTime, endTime, event, tmpDir)
+            .then(resolve)
+            .catch(reject);
+        } else {
           event.sender.send('download-error', {
             error: `Error extracting clip: ${err.message}`
           });
+          tmpDir.removeCallback();
           reject(err);
-        });
-        
-        // Start the extraction
-        ffmpegExtract.run();
+        }
       });
       
-      ffmpegDownload.on('error', (err) => {
-        console.error('Error downloading video section:', err);
-        event.sender.send('download-error', {
-          error: `Error downloading video section: ${err.message}`
-        });
-        reject(err);
-      });
-      
-      // Start the download
-      ffmpegDownload.run();
+      // Start the extraction
+      command.run();
     });
     
   } catch (error) {
@@ -216,6 +191,93 @@ async function downloadAndConvertClip(url, targetPath, startTime, endTime, event
       error: `Clip conversion error: ${error.message}`
     });
   }
+}
+
+// Alternative clip extraction method as fallback
+async function alternativeClipExtraction(url, targetPath, startTime, endTime, event, tmpDir) {
+  const tempOutput = path.join(tmpDir.name, 'full_video.mp4');
+  
+  event.sender.send('download-progress', {
+    percentage: 0,
+    status: 'Trying alternative extraction method...'
+  });
+  
+  return new Promise((resolve, reject) => {
+    // Step 1: Download a portion of the video
+    const ffmpegDownload = ffmpeg(url)
+      .seekInput(Math.max(0, startTime - 2)) // Start 2 seconds before clip start
+      .duration(endTime - startTime + 4)     // Add 4 seconds buffer (2 at start, 2 at end)
+      .outputOptions([
+        '-c', 'copy',
+        '-bsf:a', 'aac_adtstoasc',
+        '-y'
+      ])
+      .output(tempOutput);
+    
+    ffmpegDownload.on('progress', (progress) => {
+      if (progress.percent) {
+        event.sender.send('download-progress', {
+          percentage: Math.min(50, Math.round(progress.percent / 2)),
+          status: `Alternative method - Step 1: ${progress.percent.toFixed(1)}%`
+        });
+      }
+    });
+    
+    ffmpegDownload.on('end', () => {
+      // Step 2: Extract the exact clip
+      const ffmpegExtract = ffmpeg(tempOutput)
+        .seekInput(2)  // Skip the 2-second buffer
+        .duration(endTime - startTime)
+        .outputOptions([
+          '-c', 'copy',
+          '-y'
+        ])
+        .output(targetPath);
+      
+      ffmpegExtract.on('progress', (progress) => {
+        if (progress.percent) {
+          event.sender.send('download-progress', {
+            percentage: 50 + Math.round(progress.percent / 2),
+            status: `Alternative method - Step 2: ${progress.percent.toFixed(1)}%`
+          });
+        }
+      });
+      
+      ffmpegExtract.on('end', () => {
+        event.sender.send('download-progress', {
+          percentage: 100,
+          status: 'Clip extraction complete!'
+        });
+        
+        event.sender.send('download-complete', {
+          path: targetPath,
+          filename: path.basename(targetPath)
+        });
+        
+        resolve();
+      });
+      
+      ffmpegExtract.on('error', (err) => {
+        console.error('Error in alternative extraction:', err);
+        event.sender.send('download-error', {
+          error: `Error in alternative extraction: ${err.message}`
+        });
+        reject(err);
+      });
+      
+      ffmpegExtract.run();
+    });
+    
+    ffmpegDownload.on('error', (err) => {
+      console.error('Error in alternative download:', err);
+      event.sender.send('download-error', {
+        error: `Error in alternative download: ${err.message}`
+      });
+      reject(err);
+    });
+    
+    ffmpegDownload.run();
+  });
 }
 
 // Function to download and convert HLS stream to MP4
