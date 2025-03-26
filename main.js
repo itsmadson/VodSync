@@ -113,81 +113,105 @@ async function downloadAndConvertClip(url, targetPath, startTime, endTime, event
   try {
     // Create temporary directory
     const tmpDir = tmp.dirSync({ unsafeCleanup: true });
-    const segmentsDir = path.join(tmpDir.name, 'segments');
-    fs.mkdirSync(segmentsDir);
+    const tempOutput = path.join(tmpDir.name, 'full_video.mp4');
     
-    // Fetch and parse m3u8 playlist
     event.sender.send('download-progress', {
       percentage: 0,
-      status: 'Analyzing playlist...'
+      status: 'Preparing to extract clip...'
     });
-    
-    const m3u8Content = await fetchM3u8Content(url);
-    const parser = new m3u8Parser.Parser();
-    parser.push(m3u8Content);
-    parser.end();
-    
-    const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
-    const segments = parser.manifest.segments;
-    
-    // Calculate which segments we need
-    const segmentDuration = segments[0].duration; // Usually 10 seconds
-    const startSegment = Math.floor(startTime / segmentDuration);
-    const endSegment = Math.ceil(endTime / segmentDuration);
-    
-    const neededSegments = segments.slice(startSegment, endSegment + 1);
-    
-    // Create a file listing segments for ffmpeg
-    const segmentList = path.join(tmpDir.name, 'segments.txt');
-    let segmentFiles = [];
-    
-    // Download needed segments
-    for (let i = 0; i < neededSegments.length; i++) {
-      const segment = neededSegments[i];
-      const segmentUrl = new URL(segment.uri, baseUrl).toString();
-      const segmentPath = path.join(segmentsDir, `segment_${i}.ts`);
-      
-      await downloadSegment(segmentUrl, segmentPath, event, i + 1, neededSegments.length);
-      segmentFiles.push(segmentPath);
-      
-      // Append to segment list file
-      fs.appendFileSync(segmentList, `file '${segmentPath}'\n`);
-    }
-    
-    // Concatenate segments and extract clip
-    event.sender.send('download-progress', {
-      percentage: 95,
-      status: 'Creating final clip...'
-    });
-    
-    // Calculate exact clip boundaries within the segments
-    const startOffset = startTime - (startSegment * segmentDuration);
-    
-    await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(segmentList)
-        .inputOptions(['-f', 'concat', '-safe', '0'])
-        .setStartTime(startOffset)
-        .setDuration(endTime - startTime)
+
+    // First, download a small portion of the full video that contains our clip
+    // This is more reliable than trying to download individual segments
+    return new Promise((resolve, reject) => {
+      // Step 1: Download the portion we need using ffmpeg
+      const ffmpegDownload = ffmpeg(url)
+        .seekInput(Math.max(0, startTime - 5)) // Start 5 seconds before clip start for safety
+        .duration(endTime - startTime + 10)    // Add 10 seconds buffer (5 at start, 5 at end)
         .outputOptions([
-          '-c', 'copy',
-          '-bsf:a', 'aac_adtstoasc'
+          '-c', 'copy',                        // Just copy streams, don't re-encode
+          '-bsf:a', 'aac_adtstoasc',           // Fix audio stream
+          '-y'                                 // Overwrite output
         ])
-        .output(targetPath)
-        .on('end', resolve)
-        .on('error', reject)
-        .run();
-    });
-    
-    // Cleanup
-    tmpDir.removeCallback();
-    
-    event.sender.send('download-complete', {
-      path: targetPath,
-      filename: path.basename(targetPath)
+        .output(tempOutput);
+      
+      // Track download progress
+      ffmpegDownload.on('progress', (progress) => {
+        if (progress.percent) {
+          event.sender.send('download-progress', {
+            percentage: Math.min(50, Math.round(progress.percent / 2)), // First half of progress
+            status: `Downloading video section: ${progress.percent.toFixed(1)}%`
+          });
+        }
+      });
+      
+      ffmpegDownload.on('end', () => {
+        event.sender.send('download-progress', {
+          percentage: 50,
+          status: 'Download complete, extracting clip...'
+        });
+        
+        // Step 2: Extract the exact clip from our downloaded portion
+        const ffmpegExtract = ffmpeg(tempOutput)
+          .seekInput(5)  // Skip the 5-second buffer we added
+          .duration(endTime - startTime)
+          .outputOptions([
+            '-c', 'copy',  // Just copy streams, don't re-encode
+            '-y'           // Overwrite output
+          ])
+          .output(targetPath);
+        
+        ffmpegExtract.on('progress', (progress) => {
+          if (progress.percent) {
+            event.sender.send('download-progress', {
+              percentage: 50 + Math.round(progress.percent / 2), // Second half of progress
+              status: `Extracting clip: ${progress.percent.toFixed(1)}%`
+            });
+          }
+        });
+        
+        ffmpegExtract.on('end', () => {
+          event.sender.send('download-progress', {
+            percentage: 100,
+            status: 'Clip extraction complete!'
+          });
+          
+          // Clean up
+          tmpDir.removeCallback();
+          
+          event.sender.send('download-complete', {
+            path: targetPath,
+            filename: path.basename(targetPath)
+          });
+          
+          resolve();
+        });
+        
+        ffmpegExtract.on('error', (err) => {
+          console.error('Error extracting clip:', err);
+          event.sender.send('download-error', {
+            error: `Error extracting clip: ${err.message}`
+          });
+          reject(err);
+        });
+        
+        // Start the extraction
+        ffmpegExtract.run();
+      });
+      
+      ffmpegDownload.on('error', (err) => {
+        console.error('Error downloading video section:', err);
+        event.sender.send('download-error', {
+          error: `Error downloading video section: ${err.message}`
+        });
+        reject(err);
+      });
+      
+      // Start the download
+      ffmpegDownload.run();
     });
     
   } catch (error) {
+    console.error('Clip conversion error:', error);
     event.sender.send('download-error', {
       error: `Clip conversion error: ${error.message}`
     });
